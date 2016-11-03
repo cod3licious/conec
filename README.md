@@ -8,4 +8,4 @@ To run the analogy experiment, it is assumed that the [text8 corpus](http://matt
 To run the named entity recognition experiment, it is assumed that the corresponding [training and test files](http://www.cnts.ua.ac.be/conll2003/ner/) are located in the data/conll2003 directory.
 
 
-If you have any questions please don't hesitate to send me an [email](cod3licious@gmail.com) and of course if you should find any bugs or want to contribute other improvements, pull requests are very welcome!
+If you have any questions please don't hesitate to send me an [email](mailto:cod3licious@gmail.com) and of course if you should find any bugs or want to contribute other improvements, pull requests are very welcome!
