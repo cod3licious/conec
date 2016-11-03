@@ -1,0 +1,7 @@
+.DS_Store
+*~
+*.sw[p|o]
+*.py[c|o]
+*.py~
+*.csv
+*.db
