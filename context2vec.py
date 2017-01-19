@@ -6,7 +6,7 @@ from scipy.sparse import csr_matrix, dok_matrix, lil_matrix
 
 class ContextModel():
 
-    def __init__(self, sentences, min_count=5, window=5, forward=True, backward=True, wordlist=[]):
+    def __init__(self, sentences, min_count=5, window=5, forward=True, backward=True, wordlist=[], progress=1000):
         """
         sentences: list/generator of lists of words
         in case this is based on a pretrained word2vec model, give the index2word attribute as wordlist
@@ -18,7 +18,9 @@ class ContextModel():
             - index2word: [word1, word2, ...]
             - wcounts: {word: frequency}
             - featmat: n_voc x n_voc sparse array with weighted context word counts for every word
+            - progress: after how many sentences a progress printout should occur (default 1000)
         """
+        self.progress = progress
         self.min_count = min_count
         self.window = window
         self.build_windex(sentences, wordlist)
@@ -34,7 +36,7 @@ class ContextModel():
         vocab = defaultdict(int)
         total_words = 0
         for sentence_no, sentence in enumerate(sentences):
-            if not sentence_no % 10000:
+            if not sentence_no % self.progress:
                 print "PROGRESS: at sentence #%i, processed %i words and %i unique words" % (sentence_no, sum(vocab.values()), len(vocab))
             for word in sentence:
                 vocab[word] += 1
@@ -56,7 +58,7 @@ class ContextModel():
         # make the feature matrix
         featmat = lil_matrix((len(self.index2word), len(self.index2word)), dtype=float)
         for sentence_no, sentence in enumerate(sentences):
-            if not sentence_no % 1000:
+            if not sentence_no % self.progress:
                 print "PROGRESS: at sentence #%i" % sentence_no
             sentence = [word if word in self.word2index else None for word in sentence]
             # forward pass

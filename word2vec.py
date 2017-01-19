@@ -10,7 +10,6 @@ import logging
 import heapq
 from copy import deepcopy
 import numpy as np
-from scipy.spatial.distance import cdist
 from math import sqrt
 
 logger = logging.getLogger("word2vec")

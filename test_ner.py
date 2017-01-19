@@ -48,30 +48,42 @@ class CoNLL2003(object):
             yield tokens
 
 
-def train_word2vec(train_all=False):
+def train_word2vec(train_all=False, it=100, seed=1):
     # train all models for 20 iterations
     # train the word2vec model on a) the training data
     sentences = CoNLL2003(to_lower=True)
-    model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=3)
-    for i in range(19):
-        model.train(sentences)
-    # delete the huge stupid table again
-    model.table = None
-    # pickle the entire model to disk, so we can load&resume training later
-    saven = "conll2003_train_20it_cbow_200_hs0_neg13_seed3.model"
-    print "saving model"
-    pkl.dump(model, open("data/%s" % saven, 'wb'), -1)
+
+    def save_model(model, saven):
+        # delete the huge stupid table again
+        table = deepcopy(model.table)
+        model.table = None
+        # pickle the entire model to disk, so we can load&resume training later
+        pkl.dump(model, open("data/%s" % saven, 'wb'), -1)
+        # reinstate the table to continue training
+        model.table = table
+
+    # train the cbow model; default window=5
+    alpha = 0.02
+    model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, embed_dim=200, alpha=alpha, min_alpha=alpha, seed=seed)
+    for i in range(1, it):
+        print "####### ITERATION %i ########" % i
+        if not i % 5:
+            save_model(model, "conll2003_train_cbow_200_hs0_neg13_seed%i_it%i.model" % (seed, i))
+            alpha /= 2.
+            alpha = max(alpha, 0.0001)
+        model.train(sentences, alpha=alpha, min_alpha=alpha)
+    save_model(model, "conll2003_train_cbow_200_hs0_neg13_seed%i_it%i.model" % (seed, it))
     if train_all:
         # and b) the training + test data
         sentences = CoNLL2003(to_lower=True, sources=[
                               "data/conll2003/ner/eng.train", "data/conll2003/ner/eng.testa", "data/conll2003/ner/eng.testb"])
-        model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=3)
+        model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=seed)
         for i in range(19):
             model.train(sentences)
         # delete the huge stupid table again
         model.table = None
         # pickle the entire model to disk, so we can load&resume training later
-        saven = "conll2003_test_20it_cbow_200_hs0_neg13_seed3.model"
+        saven = "conll2003_test_20it_cbow_200_hs0_neg13_seed%i.model" % seed
         print "saving model"
         pkl.dump(model, open("data/%s" % saven, 'wb'), -1)
 
@@ -89,13 +101,14 @@ def make_featmat_wordfeat(tokens):
 
 class ContextEnc_NER(object):
 
-    def __init__(self, w2v_model, contextm=False, sentences=[], w_local=0.4, include_wf=False, to_lower=True, normed=True, renorm=True):
+    def __init__(self, w2v_model, contextm=False, sentences=[], w_local=0.4, context_global_only=False, include_wf=False, to_lower=True, normed=True, renorm=True):
         self.clf = None
         self.w2v_model = w2v_model
         self.rep_idx = {word: i for i, word in enumerate(w2v_model.index2word)}
         self.include_wf = include_wf
         self.to_lower = to_lower
         self.w_local = w_local  # how much the local context compared to the global should count
+        self.context_global_only = context_global_only  # if only global context should count (0 if global not available -- not same as w_local=0)
         self.normed = normed
         self.renorm = renorm
         # should we include the context?
@@ -131,17 +144,23 @@ class ContextEnc_NER(object):
         else:
             rep_mat = deepcopy(self.w2v_model.syn0)
         if self.context_model:
-            # compute the local context matrix
-            if not tok_idx:
-                local_context_mat, tok_idx = self.context_model.get_local_context_matrix(pp_tokens)
-            local_tok_idx = [tok_idx[t] for t in pp_tokens]
-            context_mat = lil_matrix(local_context_mat[local_tok_idx, :])
-            assert context_mat.shape == (len(tokens), len(self.rep_idx)), "context matrix has wrong shape"
-            # average it with the global context vectors if available
-            local_global_tok_idx = [tok_idx[t] for t in pp_tokens if t in self.rep_idx]
-            global_tok_idx = [self.rep_idx[t] for t in pp_tokens if t in self.rep_idx]
-            context_mat[idx_featmat, :] = self.w_local * lil_matrix(local_context_mat[local_global_tok_idx, :]) + (
-                1. - self.w_local) * self.context_model.featmat[global_tok_idx, :]
+            if self.context_global_only:
+                # make context matrix out of global context vectors only
+                context_mat = lil_matrix((len(tokens), len(self.rep_idx)))
+                global_tok_idx = [self.rep_idx[t] for t in pp_tokens if t in self.rep_idx]
+                context_mat[idx_featmat, :] = self.context_model.featmat[global_tok_idx, :]
+            else:
+                # compute the local context matrix
+                if not tok_idx:
+                    local_context_mat, tok_idx = self.context_model.get_local_context_matrix(pp_tokens)
+                local_tok_idx = [tok_idx[t] for t in pp_tokens]
+                context_mat = lil_matrix(local_context_mat[local_tok_idx, :])
+                assert context_mat.shape == (len(tokens), len(self.rep_idx)), "context matrix has wrong shape"
+                # average it with the global context vectors if available
+                local_global_tok_idx = [tok_idx[t] for t in pp_tokens if t in self.rep_idx]
+                global_tok_idx = [self.rep_idx[t] for t in pp_tokens if t in self.rep_idx]
+                context_mat[idx_featmat, :] = self.w_local * lil_matrix(local_context_mat[local_global_tok_idx, :]) + (
+                    1. - self.w_local) * self.context_model.featmat[global_tok_idx, :]
             # multiply context_mat with rep_mat to get featmat (+ normalize)
             featmat[:, 0:rep_mat.shape[1]] = csr_matrix(context_mat) * rep_mat
             # length normalize the feature vectors
@@ -292,41 +311,47 @@ def apply_conll2003_ner(ner, testfile, outfile):
                 f_out.write("\n")
 
 
-def log_results(clf_ner, description):
+def log_results(clf_ner, description, filen='', subf=''):
+    import os
+    if not os.path.exists('data/conll2003_results%s' % subf):
+        os.mkdir('data/conll2003_results%s' % subf)
     import commands
     print "applying to training set"
-    apply_conll2003_ner(clf_ner, 'data/conll2003/ner/eng.train', 'data/conll2003_results/eng.out_train.txt')
+    apply_conll2003_ner(clf_ner, 'data/conll2003/ner/eng.train', 'data/conll2003_results%s/eng.out_train.txt' % subf)
     print "applying to test set"
-    apply_conll2003_ner(clf_ner, 'data/conll2003/ner/eng.testa', 'data/conll2003_results/eng.out_testa.txt')
-    apply_conll2003_ner(clf_ner, 'data/conll2003/ner/eng.testb', 'data/conll2003_results/eng.out_testb.txt')
+    apply_conll2003_ner(clf_ner, 'data/conll2003/ner/eng.testa', 'data/conll2003_results%s/eng.out_testa.txt' % subf)
+    apply_conll2003_ner(clf_ner, 'data/conll2003/ner/eng.testb', 'data/conll2003_results%s/eng.out_testb.txt' % subf)
     # write out results
-    with open('data/conll2003_results/output_all.txt', 'a') as f:
+    with open('data/conll2003_results/output_all_%s.txt' % filen, 'a') as f:
         f.write('%s\n' % description)
         f.write('results on training data\n')
-        out = commands.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results/eng.out_train.txt')[1]
+        out = commands.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results%s/eng.out_train.txt' % subf)[1]
         f.write(out)
         f.write('\n')
         f.write('results on testa\n')
-        out = commands.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results/eng.out_testa.txt')[1]
+        out = commands.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results%s/eng.out_testa.txt' % subf)[1]
         f.write(out)
         f.write('\n')
         f.write('results on testb\n')
-        out = commands.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results/eng.out_testb.txt')[1]
+        out = commands.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results%s/eng.out_testb.txt' % subf)[1]
         f.write(out)
         f.write('\n')
         f.write('\n')
 
+
 if __name__ == '__main__':
-    train_word2vec(train_all=False)
+    seed = 3
+    it = 20
+    train_word2vec(train_all=False, it=it, seed=seed)
     # load pretrained word2vec model
-    with open("data/conll2003_train_20it_cbow_200_hs0_neg13_seed3.model", 'rb') as f:
+    with open("data/conll2003_train_cbow_200_hs0_neg13_seed%i_it%i.model" % (seed, it), 'rb') as f:
         w2v_model = pkl.load(f)
     # train a classifier with these word embeddings on the training part
     clf_ner = ContextEnc_NER(w2v_model, include_wf=False)
     clf_ner.train_clf(['data/conll2003/ner/eng.train'])
     # apply the classifier to all training and test parts of the CoNLL2003 task,
     # run the evaluation script and save the results
-    log_results(clf_ner, '####### word2vec model')
+    log_results(clf_ner, '####### word2vec model, seed: %i, it: %i' % (seed, it), 'word2vec_%i' % seed, '_word2vec_%i_%i' % (seed, it))
     """
         results on training data
         processed 204567 tokens with 23499 phrases; found: 38310 phrases; correct: 11537.
@@ -353,33 +378,41 @@ if __name__ == '__main__':
 
     # load the text again (same as word2vec model was trained on) to generate the context matrix
     sentences = CoNLL2003(to_lower=True)
+    # only use global context; no rep for out-of-vocab
+    clf_ner = ContextEnc_NER(w2v_model, contextm=True, sentences=sentences, w_local=0., context_global_only=True)
+    clf_ner.train_clf(['data/conll2003/ner/eng.train'])
+    # evaluate the results again
+    log_results(clf_ner, '####### context enc with global context matrix only, seed: %i, it: %i' % (seed, it), 'conec_global_%i' % seed, '_conec_global_%i_%i' % (seed, it))
+
     # for the out-of-vocabulary words in the dev and test set, only the local context matrix (based on only the current doc)
     # is used to generate the respective word embeddings; where a global context vector is available (for all words in the training set)
     # we use a combination of the local and global context, determined by w_local
-    clf_ner = ContextEnc_NER(w2v_model, contextm=True, sentences=sentences, w_local=0.4)
-    clf_ner.train_clf(['data/conll2003/ner/eng.train'])
-    # evaluate the results again
-    log_results(clf_ner, '####### context enc with a combination of the global and local context matrix (w_local=0.4)')
-    """
-        results on training data
-        processed 204567 tokens with 23499 phrases; found: 33708 phrases; correct: 11675.
-        accuracy:  84.34%; precision:  34.64%; recall:  49.68%; FB1:  40.82
-                      LOC: precision:  57.46%; recall:  75.34%; FB1:  65.20  9361
-                     MISC: precision:  19.56%; recall:  37.14%; FB1:  25.62  6530
-                      ORG: precision:  19.16%; recall:  24.62%; FB1:  21.55  8119
-                      PER: precision:  35.71%; recall:  52.47%; FB1:  42.50  9698
-        results on testa
-        processed 51578 tokens with 5942 phrases; found: 8756 phrases; correct: 3244.
-        accuracy:  85.01%; precision:  37.05%; recall:  54.59%; FB1:  44.14
-                      LOC: precision:  56.96%; recall:  77.74%; FB1:  65.75  2507
-                     MISC: precision:  22.97%; recall:  41.76%; FB1:  29.64  1676
-                      ORG: precision:  20.96%; recall:  28.64%; FB1:  24.20  1832
-                      PER: precision:  38.20%; recall:  56.84%; FB1:  45.69  2741
-        results on testb
-        processed 46666 tokens with 5648 phrases; found: 8407 phrases; correct: 2830.
-        accuracy:  84.17%; precision:  33.66%; recall:  50.11%; FB1:  40.27
-                      LOC: precision:  53.21%; recall:  74.58%; FB1:  62.11  2338
-                     MISC: precision:  16.29%; recall:  36.32%; FB1:  22.50  1565
-                      ORG: precision:  24.44%; recall:  30.04%; FB1:  26.95  2042
-                      PER: precision:  33.79%; recall:  51.45%; FB1:  40.79  2462
-    """
+    for w_local in [0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.]:
+        print w_local
+        clf_ner = ContextEnc_NER(w2v_model, contextm=True, sentences=sentences, w_local=w_local)
+        clf_ner.train_clf(['data/conll2003/ner/eng.train'])
+        # evaluate the results again
+        log_results(clf_ner, '####### context enc with a combination of the global and local context matrix (w_local=%.1f), seed: %i, it: %i' % (w_local, seed, it), 'conec_%i_%i' % (round(w_local*10), seed), '_conec_%i_%i_%i' % (round(w_local*10), seed, it))
+        """
+            results on training data
+            processed 204567 tokens with 23499 phrases; found: 33708 phrases; correct: 11675.
+            accuracy:  84.34%; precision:  34.64%; recall:  49.68%; FB1:  40.82
+                          LOC: precision:  57.46%; recall:  75.34%; FB1:  65.20  9361
+                         MISC: precision:  19.56%; recall:  37.14%; FB1:  25.62  6530
+                          ORG: precision:  19.16%; recall:  24.62%; FB1:  21.55  8119
+                          PER: precision:  35.71%; recall:  52.47%; FB1:  42.50  9698
+            results on testa
+            processed 51578 tokens with 5942 phrases; found: 8756 phrases; correct: 3244.
+            accuracy:  85.01%; precision:  37.05%; recall:  54.59%; FB1:  44.14
+                          LOC: precision:  56.96%; recall:  77.74%; FB1:  65.75  2507
+                         MISC: precision:  22.97%; recall:  41.76%; FB1:  29.64  1676
+                          ORG: precision:  20.96%; recall:  28.64%; FB1:  24.20  1832
+                          PER: precision:  38.20%; recall:  56.84%; FB1:  45.69  2741
+            results on testb
+            processed 46666 tokens with 5648 phrases; found: 8407 phrases; correct: 2830.
+            accuracy:  84.17%; precision:  33.66%; recall:  50.11%; FB1:  40.27
+                          LOC: precision:  53.21%; recall:  74.58%; FB1:  62.11  2338
+                         MISC: precision:  16.29%; recall:  36.32%; FB1:  22.50  1565
+                          ORG: precision:  24.44%; recall:  30.04%; FB1:  26.95  2042
+                          PER: precision:  33.79%; recall:  51.45%; FB1:  40.79  2462
+        """

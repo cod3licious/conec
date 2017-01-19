@@ -133,6 +133,20 @@ def accuracy(model, questions, lowercase=True, restrict_vocab=30000):
     return sections
 
 
+def accuracy_examples(model):
+    # just as advertised...
+    print model.most_similar(positive=['woman', 'king'], negative=['man'], topn=1)
+    # "boy" is to "father" as "girl" is to ...?
+    print model.most_similar(['girl', 'father'], ['boy'], topn=3)
+    more_examples = ["he his she", "big bigger bad", "going went being"]
+    for example in more_examples:
+        a, b, x = example.split()
+        predicted = model.most_similar([x, b], [a])[0][0]
+        print "'%s' is to '%s' as '%s' is to '%s'" % (a, b, x, predicted)
+    # which word doesn't go with the others?
+    print model.doesnt_match("breakfast cereal dinner lunch".split())
+
+
 def evaluate_google():
     # see https://code.google.com/archive/p/word2vec/
     # load pretrained google embeddings and test
@@ -177,32 +191,34 @@ def evaluate_contextenc(corpus, seed=1):
         _ = accuracy(model, "data/questions-words.txt")
 
 
-def train_word2vec(corpus='text8', seed=1):
+def train_word2vec(corpus='text8', seed=1, it=10, save_interm=True):
     # load text
     if corpus == 'text8':
         sentences = Text8Corpus('data/text8')
     elif corpus == '1bil':
         sentences = OneBilCorpus()
+
+    def save_model(model, saven):
+        # delete the huge stupid table again
+        table = deepcopy(model.table)
+        model.table = None
+        # pickle the entire model to disk, so we can load&resume training later
+        pkl.dump(model, open("data/%s" % saven, 'wb'), -1)
+        # reinstate the table to continue training
+        model.table = table
+
     # train the cbow model; default window=5
     model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=seed)
-    # delete the huge stupid table again
-    model.table = None
-    # pickle the entire model to disk, so we can load&resume training later
-    saven = "%s_cbow_200_hs0_neg13_seed%i.model" % (corpus, seed)
-    print "saving model"
-    pkl.dump(model, open("data/%s" % saven, 'wb'), -1)
-    # ... and some hours later... just as advertised...
-    print model.most_similar(positive=['woman', 'king'], negative=['man'], topn=1)
-    # "boy" is to "father" as "girl" is to ...?
-    print model.most_similar(['girl', 'father'], ['boy'], topn=3)
-    more_examples = ["he his she", "big bigger bad", "going went being"]
-    for example in more_examples:
-        a, b, x = example.split()
-        predicted = model.most_similar([x, b], [a])[0][0]
-        print "'%s' is to '%s' as '%s' is to '%s'" % (a, b, x, predicted)
-    # which word doesn't go with the others?
-    print model.doesnt_match("breakfast cereal dinner lunch".split())
+    for i in range(1, it):
+        print "####### ITERATION %i ########" % i
+        _ = accuracy(model, "data/questions-words.txt")
+        if save_interm:
+            save_model(model, "%s_cbow_200_hs0_neg13_seed%i_it%i.model" % (corpus, seed, i))
+        model.train(sentences, alpha=0.005, min_alpha=0.005)
+    save_model(model, "%s_cbow_200_hs0_neg13_seed%i_it%i.model" % (corpus, seed, it))
+    print "####### ITERATION %i ########" % it
     _ = accuracy(model, "data/questions-words.txt")
+    accuracy_examples(model)
 
 
 def main():
