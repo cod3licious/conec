@@ -1,7 +1,7 @@
 ## READ ME
 
 With this code you can train and evaluate Context Encoders (ConEc), an extension of word2vec, which can learn word embeddings from large corpora and create out-of-vocabulary embeddings on the spot as well as distinguish between multiple meanings of words based on their local contexts.
-A link to a paper explaining further details of the model will be added soon.
+For further details on the model and experiments please refer to the [paper](https://arxiv.org/abs/1706.02496) (and of course please consider citing it ;-)).
 
 
 dependencies: (main code) numpy, scipy; (experiments) sklearn, unidecode
@@ -27,7 +27,7 @@ conec_emb = conec_emb / np.array([np.linalg.norm(conec_emb, axis=1)]).T
 ### experiments
 `test_analogy.py` and `test_ner.py` contain the code to replicate the analogy and named entity recognition (NER) experiments discussed in the aforementioned paper.
 
-To run the analogy experiment, it is assumed that the [text8 corpus](http://mattmahoney.net/dc/text8.zip) as well as the [analogy questions](https://code.google.com/archive/p/word2vec/) are in a data directory.
+To run the analogy experiment, it is assumed that the [text8 corpus](http://mattmahoney.net/dc/text8.zip) or [1-billion corpus](http://code.google.com/p/1-billion-word-language-modeling-benchmark/) as well as the [analogy questions](https://code.google.com/archive/p/word2vec/) are in a data directory.
 
 To run the named entity recognition experiment, it is assumed that the corresponding [training and test files](http://www.cnts.ua.ac.be/conll2003/ner/) are located in the data/conll2003 directory.
 
