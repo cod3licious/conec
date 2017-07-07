@@ -48,7 +48,7 @@ class CoNLL2003(object):
             yield tokens
 
 
-def train_word2vec(train_all=False, it=100, seed=1):
+def train_word2vec(train_all=False, it=20, seed=1):
     # train all models for 20 iterations
     # train the word2vec model on a) the training data
     sentences = CoNLL2003(to_lower=True)

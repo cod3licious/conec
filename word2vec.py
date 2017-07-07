@@ -122,7 +122,7 @@ class Word2Vec():
         vocab_size = len(self.vocab)
         logger.info("constructing a table with noise distribution from %i words" % vocab_size)
         # table (= list of words) of noise distribution for negative sampling
-        self.table = np.zeros(int(table_size))
+        self.table = np.zeros(int(table_size), dtype=int)
         # compute sum of all power (Z in paper)
         train_words_pow = float(sum([self.vocab[word].count**power for word in self.vocab]))
         # go through the whole table and fill it up with the word indexes proportional to a word's count**power
