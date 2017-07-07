@@ -224,18 +224,23 @@ def train_word2vec(corpus='text8', seed=1, it=10, save_interm=True):
 def main():
     # load the text on which we're training
     sentences = Text8Corpus('data/text8')
-    # train the cbow model; default window=5, min_count=5
-    # with open("data/text8_cbow_200_hs0_neg13_seed3.model") as f:
-    #     model = pkl.load(f)
-    model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=3)
+    # this would train the model for 1 iteration
+    # model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=3)
+    # and we don't need the table used for negative sampling (it's huge)
+    # model.table = None
+    # however to replicate the results of the paper, you should train the model for 10 iterations
+    # we set `it' to 3 here to speed up the process, change it to 10 for better accuracies
+    it = 3
+    train_word2vec(corpus='text8', seed=3, it=it, save_interm=False)
+    # since this saves the model (e.g. for training on a cluster), we need to load it again
+    with open("data/text8_cbow_200_hs0_neg13_seed3_it%i.model" % it) as f:
+        model = pkl.load(f)
     """
         collected 253854 unique words from a corpus of 17005207 words and 17006 sentences
         total of 71290 unique words after removing those with count < 5
         training model on 71290 vocabulary and 200 features
         training on 16718844 words took 2789.4s, 5994 words/s
     """
-    # don't need the table used for negative sampling (it's huge)
-    model.table = None
     # evaluate the accuracy on the analogy task
     _ = accuracy(model, "data/questions-words.txt")
     """
