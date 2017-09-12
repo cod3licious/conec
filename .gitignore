@@ -5,3 +5,8 @@
 *.py~
 *.csv
 *.db
+dist/
+build/
+conec.egg-info/
+MANIFEST.in
+setup.py
