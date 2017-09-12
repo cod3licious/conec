@@ -5,6 +5,7 @@
 *.py~
 *.csv
 *.db
+examples/data/
 dist/
 build/
 conec.egg-info/

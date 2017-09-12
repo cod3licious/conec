@@ -1,5 +1,12 @@
+from __future__ import division
+from __future__ import print_function
+from future import standard_library
+standard_library.install_aliases()
+from builtins import next
+from builtins import range
+from builtins import object
 import logging
-import cPickle as pkl
+import pickle as pkl
 import re
 from copy import deepcopy
 import numpy as np
@@ -8,8 +15,8 @@ from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression as logreg
 from unidecode import unidecode
 
-import word2vec
-import context2vec
+from conec import word2vec
+from conec import context2vec
 
 logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
@@ -66,7 +73,7 @@ def train_word2vec(train_all=False, it=20, seed=1):
     alpha = 0.02
     model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, embed_dim=200, alpha=alpha, min_alpha=alpha, seed=seed)
     for i in range(1, it):
-        print "####### ITERATION %i ########" % i
+        print("####### ITERATION %i ########" % i)
         if not i % 5:
             save_model(model, "conll2003_train_cbow_200_hs0_neg13_seed%i_it%i.model" % (seed, i))
             alpha /= 2.
@@ -84,7 +91,7 @@ def train_word2vec(train_all=False, it=20, seed=1):
         model.table = None
         # pickle the entire model to disk, so we can load&resume training later
         saven = "conll2003_test_20it_cbow_200_hs0_neg13_seed%i.model" % seed
-        print "saving model"
+        print("saving model")
         pkl.dump(model, open("data/%s" % saven, 'wb'), -1)
 
 
@@ -186,7 +193,7 @@ class ContextEnc_NER(object):
                 final_labels.extend(labels)
                 featmat.append(self.make_featmat_rep(tokens))
         featmat = np.vstack(featmat)
-        print "training classifier"
+        print("training classifier")
         clf = logreg(class_weight='balanced', random_state=1)
         clf.fit(featmat, final_labels)
         self.clf = clf
@@ -291,7 +298,7 @@ def apply_conll2003_ner(ner, testfile, outfile):
                 f_out.write("-DOCSTART- -X- -X- O O\n")
                 # we're at a new document, time for a new local context matrix
                 if ner.context_model:
-                    doc_tokens = documents_it.next()
+                    doc_tokens = next(documents_it)
                     local_context_mat, tok_idx = ner.context_model.get_local_context_matrix(doc_tokens)
             # outfile: testfile + additional column with predicted label
             elif line.strip():
@@ -313,27 +320,29 @@ def apply_conll2003_ner(ner, testfile, outfile):
 
 def log_results(clf_ner, description, filen='', subf=''):
     import os
+    if not os.path.exists('data/conll2003_results'):
+        os.mkdir('data/conll2003_results')
     if not os.path.exists('data/conll2003_results%s' % subf):
         os.mkdir('data/conll2003_results%s' % subf)
-    import commands
-    print "applying to training set"
+    import subprocess
+    print("applying to training set")
     apply_conll2003_ner(clf_ner, 'data/conll2003/ner/eng.train', 'data/conll2003_results%s/eng.out_train.txt' % subf)
-    print "applying to test set"
+    print("applying to test set")
     apply_conll2003_ner(clf_ner, 'data/conll2003/ner/eng.testa', 'data/conll2003_results%s/eng.out_testa.txt' % subf)
     apply_conll2003_ner(clf_ner, 'data/conll2003/ner/eng.testb', 'data/conll2003_results%s/eng.out_testb.txt' % subf)
     # write out results
     with open('data/conll2003_results/output_all_%s.txt' % filen, 'a') as f:
         f.write('%s\n' % description)
         f.write('results on training data\n')
-        out = commands.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results%s/eng.out_train.txt' % subf)[1]
+        out = subprocess.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results%s/eng.out_train.txt' % subf)[1]
         f.write(out)
         f.write('\n')
         f.write('results on testa\n')
-        out = commands.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results%s/eng.out_testa.txt' % subf)[1]
+        out = subprocess.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results%s/eng.out_testa.txt' % subf)[1]
         f.write(out)
         f.write('\n')
         f.write('results on testb\n')
-        out = commands.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results%s/eng.out_testb.txt' % subf)[1]
+        out = subprocess.getstatusoutput('data/conll2003/ner/bin/conlleval < data/conll2003_results%s/eng.out_testb.txt' % subf)[1]
         f.write(out)
         f.write('\n')
         f.write('\n')
@@ -388,7 +397,7 @@ if __name__ == '__main__':
     # is used to generate the respective word embeddings; where a global context vector is available (for all words in the training set)
     # we use a combination of the local and global context, determined by w_local
     for w_local in [0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.]:
-        print w_local
+        print(w_local)
         clf_ner = ContextEnc_NER(w2v_model, contextm=True, sentences=sentences, w_local=w_local)
         clf_ner.train_clf(['data/conll2003/ner/eng.train'])
         # evaluate the results again

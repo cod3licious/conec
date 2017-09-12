@@ -1,10 +1,13 @@
+from __future__ import print_function
+from __future__ import division
+from builtins import object
 from collections import defaultdict
 from copy import deepcopy
 import numpy as np
 from scipy.sparse import csr_matrix, dok_matrix, lil_matrix
 
 
-class ContextModel():
+class ContextModel(object):
 
     def __init__(self, sentences, min_count=5, window=5, forward=True, backward=True, wordlist=[], progress=1000):
         """
@@ -37,14 +40,14 @@ class ContextModel():
         total_words = 0
         for sentence_no, sentence in enumerate(sentences):
             if not sentence_no % self.progress:
-                print "PROGRESS: at sentence #%i, processed %i words and %i unique words" % (sentence_no, sum(vocab.values()), len(vocab))
+                print("PROGRESS: at sentence #%i, processed %i words and %i unique words" % (sentence_no, sum(vocab.values()), len(vocab)))
             for word in sentence:
                 vocab[word] += 1
-        print "collected %i unique words from a corpus of %i words and %i sentences" % (len(vocab), sum(vocab.values()), sentence_no + 1)
+        print("collected %i unique words from a corpus of %i words and %i sentences" % (len(vocab), sum(vocab.values()), sentence_no + 1))
         # assign a unique index to each word and remove all words with freq < min_count
         self.wcounts, self.word2index, self.index2word = {}, {}, []
         if not wordlist:
-            wordlist = [word for word, c in vocab.iteritems() if c >= self.min_count]
+            wordlist = [word for word, c in vocab.items() if c >= self.min_count]
         for word in wordlist:
             self.word2index[word] = len(self.word2index)
             self.index2word.append(word)
@@ -59,7 +62,7 @@ class ContextModel():
         featmat = lil_matrix((len(self.index2word), len(self.index2word)), dtype=float)
         for sentence_no, sentence in enumerate(sentences):
             if not sentence_no % self.progress:
-                print "PROGRESS: at sentence #%i" % sentence_no
+                print("PROGRESS: at sentence #%i" % sentence_no)
             sentence = [word if word in self.word2index else None for word in sentence]
             # forward pass
             if self.forward:
@@ -80,7 +83,7 @@ class ContextModel():
                         for j, w in enumerate(wwords, 1):
                             if w:
                                 featmat[self.word2index[word], self.word2index[w]] += 1.  # /j
-        print "PROGRESS: through with all the sentences"
+        print("PROGRESS: through with all the sentences")
         self.featmat = csr_matrix(featmat)
 
     def get_context_matrix(self, fill_diag=True, norm='count'):
@@ -104,12 +107,12 @@ class ContextModel():
         assert ((featmat - featmat.transpose()).data**2).sum() < 2.220446049250313e-16, "featmat not symmetric"
         # possibly normalize by the max counts
         if norm == 'count':
-            print "normalizing feature matrix by word count"
+            print("normalizing feature matrix by word count")
             normmat = lil_matrix(featmat.shape, dtype=float)
             normmat.setdiag([1. / self.wcounts[word] for word in self.index2word])
             featmat = csr_matrix(normmat) * featmat
         elif norm == 'max':
-            print "normalizing feature matrix by max counts"
+            print("normalizing feature matrix by max counts")
             normmat = lil_matrix(featmat.shape, dtype=float)
             normmat.setdiag([1. / v[0] if v[0] else 1. for v in featmat.max(axis=1).toarray()])
             featmat = csr_matrix(normmat) * featmat

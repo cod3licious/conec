@@ -5,6 +5,10 @@
 # Rewrite by Franziska Horn <cod3licious@gmail.com>
 
 from __future__ import division
+from __future__ import print_function
+from builtins import range
+from past.builtins import basestring
+from builtins import object
 import time
 import logging
 import heapq
@@ -15,7 +19,7 @@ from math import sqrt
 logger = logging.getLogger("word2vec")
 
 
-class Vocab():
+class Vocab(object):
     """
     A single vocabulary item, used internally e.g. for constructing binary trees
     (incl. both word leaves and inner nodes).
@@ -37,7 +41,7 @@ class Vocab():
         return "<" + ', '.join(vals) + ">"
 
 
-class Word2Vec():
+class Word2Vec(object):
     """
     Word2Vec Model, which can be trained and then contains word embedding that can be used for all kinds of cool stuff.
     """
@@ -145,9 +149,9 @@ class Word2Vec():
         vocab_size = len(self.vocab)
         logger.info("constructing a huffman tree from %i words" % vocab_size)
         # build the huffman tree
-        heap = self.vocab.values()
+        heap = list(self.vocab.values())
         heapq.heapify(heap)
-        for i in xrange(vocab_size - 1):
+        for i in range(vocab_size - 1):
             min1, min2 = heapq.heappop(heap), heapq.heappop(heap)
             heapq.heappush(heap, Vocab(count=min1.count + min2.count, index=i + vocab_size, left=min1, right=min2))
         # recurse over the tree, assigning a binary code to each vocabulary word
@@ -195,7 +199,7 @@ class Word2Vec():
                     (len(vocab), total_words, sentence_no + 1))
         # assign a unique index to each word
         self.vocab, self.index2word = {}, []
-        for word, v in vocab.iteritems():
+        for word, v in vocab.items():
             if v.count >= self.min_count:
                 v.index = len(self.vocab)
                 self.index2word.append(word)
@@ -203,7 +207,7 @@ class Word2Vec():
         logger.info("total of %i unique words after removing those with count < %s" % (len(self.vocab), self.min_count))
         # add probabilities for sub-sampling (if self.thr > 0)
         if self.thr > 0:
-            total_words = float(sum(v.count for v in self.vocab.itervalues()))
+            total_words = float(sum(v.count for v in self.vocab.values()))
             for word in self.vocab:
                 # formula from paper
                 #self.vocab[word].prob = max(0.,1.-sqrt(self.thr*total_words/self.vocab[word].count))
@@ -351,7 +355,7 @@ class Word2Vec():
         if self.neg and self.table is None:
             self._make_table()
         start, next_report = time.time(), 20.
-        total_words = sum(v.count for v in self.vocab.itervalues())
+        total_words = sum(v.count for v in self.vocab.values())
         word_count = 0
         for sentence_no, sentence in enumerate(sentences):
             # convert input string lists to Vocab objects (or None for OOV words)
@@ -434,7 +438,7 @@ class Word2Vec():
                 mean += weight * self.syn0norm[self.vocab[word].index]
                 all_words.add(self.vocab[word].index)
             except KeyError:
-                print "word '%s' not in vocabulary" % word
+                print("word '%s' not in vocabulary" % word)
         if not all_words:
             raise ValueError("cannot compute similarity with no input")
         dists = np.dot(self.syn0norm, mean / np.linalg.norm(mean))
