@@ -4,7 +4,7 @@ Context Encoders (ConEc)
 With this code you can train and evaluate Context Encoders (ConEc), an extension of word2vec, which can learn word embeddings from large corpora and create out-of-vocabulary embeddings on the spot as well as distinguish between multiple meanings of words based on their local contexts.
 For further details on the model and experiments please refer to the paper_  - and of course if any of this code was helpful for your research, please consider citing it:
 
-    ``
+.. code-block:: 
     @inproceedings{horn2017conecRepL4NLP,
       author       = {Horn, Franziska},
       title        = {Context encoders as a simple but powerful extension of word2vec},
@@ -13,7 +13,6 @@ For further details on the model and experiments please refer to the paper_  - a
       organization = {Association for Computational Linguistics},
       pages        = {10--14}
     }
-    ``
 
 .. _paper: https://arxiv.org/abs/1706.02496
 
