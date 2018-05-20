@@ -1,14 +1,10 @@
-from __future__ import print_function, division
-# import modules and set up logging
-from future import standard_library
-standard_library.install_aliases()
-from builtins import range
-from builtins import object
+from __future__ import unicode_literals, division, print_function, absolute_import
+from builtins import object, range
 from glob import glob
 import pickle as pkl
+import logging
 from copy import deepcopy
 import numpy as np
-import logging
 
 from conec import word2vec
 from conec import context2vec
@@ -83,7 +79,7 @@ def accuracy(model, questions, lowercase=True, restrict_vocab=30000):
     This method corresponds to the `compute-accuracy` script of the original C word2vec.
 
     """
-    ok_vocab = dict(sorted(iter(model.vocab.items()), key=lambda item: -item[1].count)[:restrict_vocab])
+    ok_vocab = dict(sorted(model.vocab.items(), key=lambda item: -item[1].count)[:restrict_vocab])
     ok_index = set(v.index for v in ok_vocab.values())
 
     def log_accuracy(section):

@@ -4,17 +4,14 @@
 #
 # Rewrite by Franziska Horn <cod3licious@gmail.com>
 
-from __future__ import division
-from __future__ import print_function
-from builtins import range
-from past.builtins import basestring
-from builtins import object
+from __future__ import unicode_literals, division, print_function, absolute_import
+from builtins import object, range, str
 import time
 import logging
 import heapq
 from copy import deepcopy
-import numpy as np
 from math import sqrt
+import numpy as np
 
 logger = logging.getLogger("word2vec")
 
@@ -422,13 +419,13 @@ class Word2Vec(object):
           >>> trained_model.most_similar(positive=['woman', 'king'], negative=['man'])
           [('queen', 0.50882536), ...]
         """
-        if isinstance(positive, basestring) and not negative:
+        if isinstance(positive, str) and not negative:
             # allow calls like most_similar('dog'), as a shorthand for most_similar(['dog'])
             positive = [positive]
 
         # add weights for each word, if not already present; default to 1.0 for positive and -1.0 for negative words
-        positive = [(word, 1.) if isinstance(word, basestring) else word for word in positive]
-        negative = [(word, -1.) if isinstance(word, basestring) else word for word in negative]
+        positive = [(word, 1.) if isinstance(word, str) else word for word in positive]
+        negative = [(word, -1.) if isinstance(word, str) else word for word in negative]
 
         # compute the weighted average of all words
         all_words = set()

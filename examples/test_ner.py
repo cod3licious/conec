@@ -1,17 +1,13 @@
-from __future__ import division
-from __future__ import print_function
+from __future__ import unicode_literals, division, print_function, absolute_import
 from future import standard_library
 standard_library.install_aliases()
-from builtins import next
-from builtins import range
-from builtins import object
+from builtins import object, range, next
 import logging
 import pickle as pkl
 import re
 from copy import deepcopy
 import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix
-from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression as logreg
 from unidecode import unidecode
 
