@@ -3,12 +3,12 @@ from builtins import object
 from collections import defaultdict
 from copy import deepcopy
 import numpy as np
-from scipy.sparse import csr_matrix, dok_matrix, lil_matrix
+from scipy.sparse import csr_matrix, lil_matrix
 
 
 class ContextModel(object):
 
-    def __init__(self, sentences, min_count=5, window=5, forward=True, backward=True, wordlist=[], progress=1000):
+    def __init__(self, sentences, min_count=5, window=5, wordlist=[], progress=1000, forward=True, backward=True):
         """
         sentences: list/generator of lists of words
         in case this is based on a pretrained word2vec model, give the index2word attribute as wordlist
@@ -25,9 +25,9 @@ class ContextModel(object):
         self.progress = progress
         self.min_count = min_count
         self.window = window
-        self.build_windex(sentences, wordlist)
         self.forward = forward
         self.backward = backward
+        self.build_windex(sentences, wordlist)
         self._get_raw_context_matrix(sentences)
 
     def build_windex(self, sentences, wordlist=[]):
@@ -36,7 +36,6 @@ class ContextModel(object):
         """
         # get an overview of the vocabulary
         vocab = defaultdict(int)
-        total_words = 0
         for sentence_no, sentence in enumerate(sentences):
             if not sentence_no % self.progress:
                 print("PROGRESS: at sentence #%i, processed %i words and %i unique words" % (sentence_no, sum(vocab.values()), len(vocab)))
@@ -105,19 +104,18 @@ class ContextModel(object):
             featmat = csr_matrix(featmat)
         assert ((featmat - featmat.transpose()).data**2).sum() < 2.220446049250313e-16, "featmat not symmetric"
         # possibly normalize by the max counts
-        if norm == 'count':
-            print("normalizing feature matrix by word count")
+        if norm in ("count", "max"):
             normmat = lil_matrix(featmat.shape, dtype=float)
-            normmat.setdiag([1. / self.wcounts[word] for word in self.index2word])
-            featmat = csr_matrix(normmat) * featmat
-        elif norm == 'max':
-            print("normalizing feature matrix by max counts")
-            normmat = lil_matrix(featmat.shape, dtype=float)
-            normmat.setdiag([1. / v[0] if v[0] else 1. for v in featmat.max(axis=1).toarray()])
-            featmat = csr_matrix(normmat) * featmat
+            if norm == "count":
+                print("normalizing feature matrix by word count")
+                normmat.setdiag([1. / self.wcounts[word] for word in self.index2word])
+            elif norm == "max":
+                print("normalizing feature matrix by max counts")
+                normmat.setdiag([1. / v[0] if v[0] else 1. for v in featmat.max(axis=1).toarray()])
+            featmat = csr_matrix(normmat) * featmat  # row in featmat multiplied by entry on diagonal
         return featmat
 
-    def get_local_context_matrix(self, tokens, forward=True, backward=True):
+    def get_local_context_matrix(self, tokens):
         """
         compute a local context matrix. it has an entry for every token, even if it is not present in the vocabulary
         Inputs:

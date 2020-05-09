@@ -56,9 +56,9 @@ class OneBilCorpus(object):
 def analogy(model, a, b, c):
     # man:woman as king:x - a:b as c:x - find x
     # get embeddings for a, b, and c and multiply with all other words
-    a_sims = 1. + np.dot(model.syn0norm, model.syn0norm[model.vocab[a].index])
-    b_sims = 1. + np.dot(model.syn0norm, model.syn0norm[model.vocab[b].index])
-    c_sims = 1. + np.dot(model.syn0norm, model.syn0norm[model.vocab[c].index])
+    a_sims = 1. + np.dot(model.wv.vector_norm, model.wv.vector_norm[model.wv.vocab[a].index])
+    b_sims = 1. + np.dot(model.wv.vector_norm, model.wv.vector_norm[model.wv.vocab[b].index])
+    c_sims = 1. + np.dot(model.wv.vector_norm, model.wv.vector_norm[model.wv.vocab[c].index])
     # add/multiply them as they should
     return b_sims - a_sims + c_sims
     # return (b_sims*c_sims)/a_sims
@@ -79,7 +79,7 @@ def accuracy(model, questions, lowercase=True, restrict_vocab=30000):
     This method corresponds to the `compute-accuracy` script of the original C word2vec.
 
     """
-    ok_vocab = dict(sorted(model.vocab.items(), key=lambda item: -item[1].count)[:restrict_vocab])
+    ok_vocab = dict(sorted(model.wv.vocab.items(), key=lambda item: -item[1].count)[:restrict_vocab])
     ok_index = set(v.index for v in ok_vocab.values())
 
     def log_accuracy(section):
@@ -111,13 +111,13 @@ def accuracy(model, questions, lowercase=True, restrict_vocab=30000):
                 # print "skipping line #%i with OOV words: %s" % (line_no, line)
                 continue
 
-            ignore = set(model.vocab[v].index for v in [a, b, c])  # indexes of words to ignore
+            ignore = set(model.wv.vocab[v].index for v in [a, b, c])  # indexes of words to ignore
             predicted = None
             # find the most likely prediction, ignoring OOV words and input words
-            # for index in np.argsort(model.most_similar(positive=[b, c], negative=[a], topn=False))[::-1]:
+            # for index in np.argsort(model.wv.most_similar(positive=[b, c], negative=[a], topn=False))[::-1]:
             for index in np.argsort(analogy(model, a, b, c))[::-1]:
                 if index in ok_index and index not in ignore:
-                    predicted = model.index2word[index]
+                    predicted = model.wv.index2word[index]
                     # if predicted != expected:
                     #     print "%s: expected %s, predicted %s" % (line.strip(), expected, predicted)
                     break
@@ -136,16 +136,16 @@ def accuracy(model, questions, lowercase=True, restrict_vocab=30000):
 
 def accuracy_examples(model):
     # just as advertised...
-    print(model.most_similar(positive=['woman', 'king'], negative=['man'], topn=1))
+    print(model.wv.most_similar(positive=['woman', 'king'], negative=['man'], topn=1))
     # "boy" is to "father" as "girl" is to ...?
-    print(model.most_similar(['girl', 'father'], ['boy'], topn=3))
+    print(model.wv.most_similar(['girl', 'father'], ['boy'], topn=3))
     more_examples = ["he his she", "big bigger bad", "going went being"]
     for example in more_examples:
         a, b, x = example.split()
-        predicted = model.most_similar([x, b], [a])[0][0]
+        predicted = model.wv.most_similar([x, b], [a])[0][0]
         print("'%s' is to '%s' as '%s' is to '%s'" % (a, b, x, predicted))
     # which word doesn't go with the others?
-    print(model.doesnt_match("breakfast cereal dinner lunch".split()))
+    print(model.wv.doesnt_match("breakfast cereal dinner lunch".split()))
 
 
 def evaluate_google():
@@ -176,17 +176,17 @@ def evaluate_contextenc(corpus, seed=1):
     elif corpus == '1bil':
         sentences = OneBilCorpus()
     context_model = context2vec.ContextModel(
-        sentences, min_count=model_org.min_count, window=model_org.window, wordlist=model_org.index2word)
+        sentences, min_count=model_org.min_count, window=model_org.window, wordlist=model_org.wv.index2word)
     for fill_diag in [True, False]:
         model = deepcopy(model_org)
         # build context matrix
         print("constructing context matrix for fill_diag: %s" % (fill_diag))
         context_mat = context_model.get_context_matrix(fill_diag, False)
         # adapt the word2vec model
-        print("adapting the word2vec weights - syn0norm")
-        model.syn0norm = context_mat.dot(model.syn0norm)
+        print("adapting the word2vec weights - vector_norm")
+        model.wv.vector_norm = context_mat.dot(model.wv.vector_norm)
         # renormalize
-        model.syn0norm = model.syn0norm / np.array([np.linalg.norm(model.syn0norm, axis=1)]).T
+        model.wv.vector_norm = model.wv.vector_norm / np.array([np.linalg.norm(model.wv.vector_norm, axis=1)]).T
         # evaluate
         print("evaluating the model")
         _ = accuracy(model, "data/questions-words.txt")
@@ -209,7 +209,7 @@ def train_word2vec(corpus='text8', seed=1, it=10, save_interm=True):
         model.table = table
 
     # train the cbow model; default window=5
-    model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=seed)
+    model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, vector_size=200, seed=seed)
     for i in range(1, it):
         print("####### ITERATION %i ########" % i)
         _ = accuracy(model, "data/questions-words.txt")
@@ -226,7 +226,7 @@ def main():
     # load the text on which we're training
     sentences = Text8Corpus('data/text8')
     # this would train the model for 1 iteration
-    # model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=3)
+    # model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, vector_size=200, seed=3)
     # and we don't need the table used for negative sampling (it's huge)
     # model.table = None
     # however to replicate the results of the paper, you should train the model for 10 iterations
@@ -263,14 +263,14 @@ def main():
     """
     # get the global context matrix relying on the same text
     context_model = context2vec.ContextModel(sentences, min_count=model.min_count,
-                                             window=model.window, wordlist=model.index2word)
+                                             window=model.window, wordlist=model.wv.index2word)
     # best results on the analogy task when counting the target word in addition to the context words
     # --> fill diagonal of the context matrix. normalization is irrelevant since we renormalize later
     context_mat = context_model.get_context_matrix(fill_diag=True, norm=False)
     # adapt the word embeddings of the word2vec model by multiplying them with the context matrix
-    model.syn0norm = context_mat.dot(model.syn0norm)
+    model.wv.vector_norm = context_mat.dot(model.wv.vector_norm)
     # renormalize so the word embeddings have unit length again
-    model.syn0norm = model.syn0norm / np.array([np.linalg.norm(model.syn0norm, axis=1)]).T
+    model.wv.vector_norm = model.wv.vector_norm / np.array([np.linalg.norm(model.wv.vector_norm, axis=1)]).T
     # evaluate the model again
     _ = accuracy(model, "data/questions-words.txt")
     """

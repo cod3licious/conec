@@ -67,7 +67,7 @@ def train_word2vec(train_all=False, it=20, seed=1):
 
     # train the cbow model; default window=5
     alpha = 0.02
-    model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, embed_dim=200, alpha=alpha, min_alpha=alpha, seed=seed)
+    model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, vector_size=200, alpha=alpha, min_alpha=alpha, seed=seed)
     for i in range(1, it):
         print("####### ITERATION %i ########" % i)
         if not i % 5:
@@ -80,7 +80,7 @@ def train_word2vec(train_all=False, it=20, seed=1):
         # and b) the training + test data
         sentences = CoNLL2003(to_lower=True, sources=[
                               "data/conll2003/ner/eng.train", "data/conll2003/ner/eng.testa", "data/conll2003/ner/eng.testb"])
-        model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=seed)
+        model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, vector_size=200, seed=seed)
         for i in range(19):
             model.train(sentences)
         # delete the huge stupid table again
@@ -107,7 +107,7 @@ class ContextEnc_NER(object):
     def __init__(self, w2v_model, contextm=False, sentences=[], w_local=0.4, context_global_only=False, include_wf=False, to_lower=True, normed=True, renorm=True):
         self.clf = None
         self.w2v_model = w2v_model
-        self.rep_idx = {word: i for i, word in enumerate(w2v_model.index2word)}
+        self.rep_idx = {word: i for i, word in enumerate(w2v_model.wv.index2word)}
         self.include_wf = include_wf
         self.to_lower = to_lower
         self.w_local = w_local  # how much the local context compared to the global should count
@@ -118,7 +118,7 @@ class ContextEnc_NER(object):
         if contextm:
             # sentences: depending on what the word2vec model was trained
             self.context_model = context2vec.ContextModel(
-                sentences, min_count=1, window=w2v_model.window, wordlist=w2v_model.index2word)
+                sentences, min_count=1, window=w2v_model.window, wordlist=w2v_model.wv.index2word)
             # --> create a global context matrix
             self.context_model.featmat = self.context_model.get_context_matrix(False, 'max')
         else:
@@ -136,16 +136,16 @@ class ContextEnc_NER(object):
             pp_tokens = [t.lower() for t in tokens]
         else:
             pp_tokens = tokens
-        dim = self.w2v_model.syn0norm.shape[1]
+        dim = self.w2v_model.wv.vector_size
         if self.include_wf:
             dim += 7
         featmat = np.zeros((len(tokens), dim), dtype=float)
         # index in featmat for all known tokens
         idx_featmat = [i for i, t in enumerate(pp_tokens) if t in self.rep_idx]
         if self.normed:
-            rep_mat = deepcopy(self.w2v_model.syn0norm)
+            rep_mat = deepcopy(self.w2v_model.wv.vectors_norm)
         else:
-            rep_mat = deepcopy(self.w2v_model.syn0)
+            rep_mat = deepcopy(self.w2v_model.vectors)
         if self.context_model:
             if self.context_global_only:
                 # make context matrix out of global context vectors only

@@ -35,7 +35,166 @@ class Vocab(object):
 
     def __str__(self):
         vals = ['%s:%r' % (key, self.__dict__[key]) for key in sorted(self.__dict__) if not key.startswith('_')]
-        return "<" + ', '.join(vals) + ">"
+        return "%s(%s)" % (self.__class__.__name__, ', '.join(vals))
+
+
+class Word2VecEmbeddings(object):
+    """
+    Word2Vec embeddings only - can't be trained further, but enough for all calculations
+    """
+    def __init__(self, vector_size=100):
+        """
+        Initialize Word2Vec embeddings
+
+        Inputs:
+            - vector_size: (default 100) dimensionality of embedding
+        """
+        self.vector_size = vector_size
+        self.vectors = np.zeros((0, vector_size))
+        self.vectors_norm = None
+        self.vocab = {}  # mapping from a word (string) to a Vocab object
+        self.index2word = []  # map from a word's matrix index (int) to the word (string)
+
+    def __str__(self):
+        return "Word2VecEmbeddings(vocab=%s, size=%s)" % (len(self.index2word), self.vector_size)
+
+    def __getitem__(self, word):
+        """
+        Return a word's representations in vector space, as a 1D numpy array.
+
+        Example:
+          >>> trained_model['woman']
+          array([ -1.40128313e-02, ...]
+        """
+        return self.vectors[self.vocab[word].index]
+
+    def __contains__(self, word):
+        return word in self.vocab
+
+    def build_vocab(self, sentences, min_count=5, thr=0):
+        """
+        Build vocabulary from a sequence of sentences (can be a once-only generator stream).
+        Each sentence must be a list of strings.
+
+        Inputs:
+            - sentences: List or generator object supplying lists of (preprocessed) words
+                         used to train the model (otherwise train manually with model.train(sentences))
+            - min_count: (default 5) how often a word has to occur at least to be taken into the vocab
+            - thr: (default 0) threshold for computing probabilities for sub-sampling words in training
+        """
+        logger.info("collecting all words and their counts")
+        sentence_no, vocab = -1, {}
+        total_words = 0
+        for sentence_no, sentence in enumerate(sentences):
+            if not sentence_no % 10000:
+                logger.info("PROGRESS: at sentence #%i, processed %i words and %i unique words" %
+                            (sentence_no, total_words, len(vocab)))
+            for word in sentence:
+                total_words += 1
+                try:
+                    vocab[word].count += 1
+                except KeyError:
+                    vocab[word] = Vocab(count=1)
+        logger.info("collected %i unique words from a corpus of %i words and %i sentences" %
+                    (len(vocab), total_words, sentence_no + 1))
+        # assign a unique index to each word
+        self.vocab, self.index2word = {}, []
+        for word, v in vocab.items():
+            if v.count >= min_count:
+                v.index = len(self.vocab)
+                self.index2word.append(word)
+                self.vocab[word] = v
+        logger.info("total of %i unique words after removing those with count < %s" % (len(self.vocab), min_count))
+        # add probabilities for sub-sampling (if thr > 0)
+        if thr > 0:
+            total_words = float(sum(v.count for v in self.vocab.values()))
+            for word in self.vocab:
+                # formula from paper
+                # self.vocab[word].prob = max(0.,1.-sqrt(thr*total_words/self.vocab[word].count))
+                # formula from code
+                self.vocab[word].prob = (sqrt(self.vocab[word].count / (thr * total_words)
+                                              ) + 1.) * (thr * total_words) / self.vocab[word].count
+        else:
+            # if prob is 0, word wont get discarded
+            for word in self.vocab:
+                self.vocab[word].prob = 0.
+
+    def init_sims(self):
+        if self.vectors_norm is None:
+            # for convenience (for later similarity computations, etc.), store all
+            # embeddings additionally as unit length vectors
+            self.vectors_norm = self.vectors / np.array([np.linalg.norm(self.vectors, axis=1)]).T
+
+    def similarity(self, w1, w2):
+        """
+        Compute cosine similarity between two words.
+
+        Example::
+          >>> trained_model.similarity('woman', 'man')
+          0.73723527
+        """
+        self.init_sims()
+        return np.inner(self.vectors_norm[self.vocab[w1].index], self.vectors_norm[self.vocab[w2].index])
+
+    def most_similar(self, positive=[], negative=[], topn=10):
+        """
+        Find the top-N most similar words. Positive words contribute positively towards the
+        similarity, negative words negatively.
+
+        This method computes cosine similarity between a simple mean of the projection
+        weight vectors of the given words, and corresponds to the `word-analogy` and
+        `distance` scripts in the original word2vec implementation.
+
+        Example::
+          >>> trained_model.most_similar(positive=['woman', 'king'], negative=['man'])
+          [('queen', 0.50882536), ...]
+        """
+        self.init_sims()
+        if isinstance(positive, str) and not negative:
+            # allow calls like most_similar('dog'), as a shorthand for most_similar(['dog'])
+            positive = [positive]
+
+        # add weights for each word, if not already present; default to 1.0 for positive and -1.0 for negative words
+        positive = [(word, 1.) if isinstance(word, str) else word for word in positive]
+        negative = [(word, -1.) if isinstance(word, str) else word for word in negative]
+
+        # compute the weighted average of all words
+        all_words = set()
+        mean = np.zeros(self.vector_size)
+        for word, weight in positive + negative:
+            try:
+                mean += weight * self.vectors_norm[self.vocab[word].index]
+                all_words.add(self.vocab[word].index)
+            except KeyError:
+                print("word '%s' not in vocabulary" % word)
+        if not all_words:
+            raise ValueError("cannot compute similarity with no input")
+        dists = np.dot(self.vectors_norm, mean / np.linalg.norm(mean))
+        if not topn:
+            return dists
+        best = np.argsort(dists)[::-1][:topn + len(all_words)]
+        # ignore (don't return) words from the input
+        result = [(self.index2word[sim], dists[sim]) for sim in best if sim not in all_words]
+        return result[:topn]
+
+    def doesnt_match(self, words):
+        """
+        Which word from the given list doesn't go with the others?
+
+        Example::
+          >>> trained_model.doesnt_match("breakfast cereal dinner lunch".split())
+          'cereal'
+        """
+        self.init_sims()
+        words = [word for word in words if word in self.vocab]  # filter out OOV words
+        logger.debug("using words %s" % words)
+        if not words:
+            raise ValueError("cannot select a word from an empty list")
+        # which word vector representation is furthest away from the mean?
+        selection = self.vectors_norm[[self.vocab[word].index for word in words]]
+        mean = np.mean(selection, axis=0)
+        sim = np.dot(selection, mean / np.linalg.norm(mean))
+        return words[np.argmin(sim)]
 
 
 class Word2Vec(object):
@@ -43,43 +202,44 @@ class Word2Vec(object):
     Word2Vec Model, which can be trained and then contains word embedding that can be used for all kinds of cool stuff.
     """
 
-    def __init__(self, sentences=None, mtype='sg', embed_dim=100, hs=1, neg=0, thr=0,
-                 window=5, min_count=5, alpha=0.025, min_alpha=0.0001, seed=1):
+    def __init__(self, sentences=None, vector_size=100, mtype='sg', hs=1, neg=0, window=5,
+                 thr=0, min_count=5, alpha=0.025, min_alpha=0.0001, seed=1):
         """
         Initialize Word2Vec model
 
         Inputs:
             - sentences: (default None) List or generator object supplying lists of (preprocessed) words
                          used to train the model (otherwise train manually with model.train(sentences))
+            - vector_size: (default 100) dimensionality of embedding
             - mtype: (default 'sg') type of model: either 'sg' (skipgram) or 'cbow' (bag of words)
-            - embed_dim: (default 100) dimensionality of embedding
             - hs: (default 1) if != 0, hierarchical softmax will be used for training the model
             - neg: (default 0) if > 0, negative sampling will be used for training the model;
                    neg specifies the # of noise words
-            - thr: (default 0) threshold for computing probabilities for sub-sampling words in training
             - window: (default 5) max distance of context words from target word in training
+            - thr: (default 0) threshold for computing probabilities for sub-sampling words in training
             - min_count: (default 5) how often a word has to occur at least to be taken into the vocab
             - alpha: (default 0.025) initial learning rate
             - min_alpha: (default 0.0001) if < alpha, the learning rate will be decreased to min_alpha
             - seed: (default 1) random seed (for initializing the embeddings)
         """
-        assert mtype in ('sg', 'cbow'), "unknown model, use 'sg' or 'cbow'"
-        self.vocab = {}  # mapping from a word (string) to a Vocab object
-        self.index2word = []  # map from a word's matrix index (int) to the word (string)
-        self.mtype = mtype
-        self.embed_dim = embed_dim
+        assert mtype.lower() in ('sg', 'cbow'), "unknown model, use 'sg' or 'cbow'"
+        self.wv = Word2VecEmbeddings(vector_size)  # stores the actual word2vec embeddings
+        self.mtype = mtype.lower()
         self.hs = hs
         self.neg = neg
-        self.thr = thr
         self.window = window
+        self.thr = thr
         self.min_count = min_count
         self.alpha = alpha
         self.min_alpha = min_alpha
         self.seed = seed
         # possibly train model
         if sentences:
-            self.build_vocab(sentences)
+            self.train_setup(sentences)
             self.train(sentences)
+
+    def __str__(self):
+        return "Word2Vec(vocab=%s, size=%s, mtype=%s, hs=%i, neg=%i)" % (len(self.wv.index2word), self.wv.vector_size, self.mtype, self.hs, self.neg)
 
     def reset_weights(self):
         """
@@ -89,64 +249,62 @@ class Word2Vec(object):
         # weights
         self.syn1 = np.asarray(
             np.random.uniform(
-                low=-4 * np.sqrt(6. / (len(self.vocab) + self.embed_dim)),
-                high=4 * np.sqrt(6. / (len(self.vocab) + self.embed_dim)),
-                size=(len(self.vocab), self.embed_dim)
+                low=-4 * np.sqrt(6. / (len(self.wv.vocab) + self.wv.vector_size)),
+                high=4 * np.sqrt(6. / (len(self.wv.vocab) + self.wv.vector_size)),
+                size=(len(self.wv.vocab), self.wv.vector_size)
             ),
             dtype=float
         )
         self.syn1neg = np.asarray(
             np.random.uniform(
-                low=-4 * np.sqrt(6. / (len(self.vocab) + self.embed_dim)),
-                high=4 * np.sqrt(6. / (len(self.vocab) + self.embed_dim)),
-                size=(len(self.vocab), self.embed_dim)
+                low=-4 * np.sqrt(6. / (len(self.wv.vocab) + self.wv.vector_size)),
+                high=4 * np.sqrt(6. / (len(self.wv.vocab) + self.wv.vector_size)),
+                size=(len(self.wv.vocab), self.wv.vector_size)
             ),
             dtype=float
         )
         # embedding
-        self.syn0 = np.asarray(
+        self.wv.vectors = np.asarray(
             np.random.uniform(
-                low=-4 * np.sqrt(6. / (len(self.vocab) + self.embed_dim)),
-                high=4 * np.sqrt(6. / (len(self.vocab) + self.embed_dim)),
-                size=(len(self.vocab), self.embed_dim)
+                low=-4 * np.sqrt(6. / (len(self.wv.vocab) + self.wv.vector_size)),
+                high=4 * np.sqrt(6. / (len(self.wv.vocab) + self.wv.vector_size)),
+                size=(len(self.wv.vocab), self.wv.vector_size)
             ),
             dtype=float
-        )  # (np.random.rand(len(self.vocab), self.embed_dim) - 0.5) / self.embed_dim
-        self.syn0norm = None
+        )
 
     def _make_table(self, table_size=100000000., power=0.75):
         """
         Create a table using stored vocabulary word counts for drawing random words in the negative
         sampling training routines.
-        Called internally from `build_vocab()`.
         """
-        vocab_size = len(self.vocab)
+        vocab_size = len(self.wv.vocab)
         logger.info("constructing a table with noise distribution from %i words" % vocab_size)
         # table (= list of words) of noise distribution for negative sampling
         self.table = np.zeros(int(table_size), dtype=int)
         # compute sum of all power (Z in paper)
-        train_words_pow = float(sum([self.vocab[word].count**power for word in self.vocab]))
+        train_words_pow = float(sum([self.wv.vocab[word].count**power for word in self.wv.vocab]))
         # go through the whole table and fill it up with the word indexes proportional to a word's count**power
         widx = 0
         # normalize count^0.75 by Z
-        d1 = self.vocab[self.index2word[widx]].count**power / train_words_pow
+        d1 = self.wv.vocab[self.wv.index2word[widx]].count**power / train_words_pow
         for tidx in range(int(table_size)):
             self.table[tidx] = widx
             if tidx / table_size > d1:
                 widx += 1
-                d1 += self.vocab[self.index2word[widx]].count**power / train_words_pow
+                d1 += self.wv.vocab[self.wv.index2word[widx]].count**power / train_words_pow
             if widx >= vocab_size:
                 widx = vocab_size - 1
 
     def _create_binary_tree(self):
         """
-        Create a binary Huffman tree using stored vocabulary word counts. Frequent words
-        will have shorter binary codes. Called internally from `build_vocab()`.
+        Create a binary Huffman tree for the hs model using stored vocabulary word counts.
+        Frequent words will have shorter binary codes.
         """
-        vocab_size = len(self.vocab)
+        vocab_size = len(self.wv.vocab)
         logger.info("constructing a huffman tree from %i words" % vocab_size)
         # build the huffman tree
-        heap = list(self.vocab.values())
+        heap = list(self.wv.vocab.values())
         heapq.heapify(heap)
         for i in range(vocab_size - 1):
             min1, min2 = heapq.heappop(heap), heapq.heappop(heap)
@@ -167,54 +325,11 @@ class Word2Vec(object):
                     stack.append((node.right, np.array(list(codes) + [1], dtype=int), points))
             logger.info("built huffman tree with maximum node depth %i" % max_depth)
 
-    def build_vocab(self, sentences, hs=False, neg=False, thr=False):
+    def train_setup(self, sentences):
         """
-        Build vocabulary from a sequence of sentences (can be a once-only generator stream).
-        Each sentence must be a list of strings.
+        Do a bunch of initializations etc before training can start
         """
-        # chance to change your mind about the training type
-        if not hs is False:
-            self.hs = hs
-        if not neg is False:
-            self.neg = neg
-        if not thr is False:
-            self.thr = thr
-        logger.info("collecting all words and their counts")
-        sentence_no, vocab = -1, {}
-        total_words = 0
-        for sentence_no, sentence in enumerate(sentences):
-            if not sentence_no % 10000:
-                logger.info("PROGRESS: at sentence #%i, processed %i words and %i unique words" %
-                            (sentence_no, total_words, len(vocab)))
-            for word in sentence:
-                total_words += 1
-                try:
-                    vocab[word].count += 1
-                except KeyError:
-                    vocab[word] = Vocab(count=1)
-        logger.info("collected %i unique words from a corpus of %i words and %i sentences" %
-                    (len(vocab), total_words, sentence_no + 1))
-        # assign a unique index to each word
-        self.vocab, self.index2word = {}, []
-        for word, v in vocab.items():
-            if v.count >= self.min_count:
-                v.index = len(self.vocab)
-                self.index2word.append(word)
-                self.vocab[word] = v
-        logger.info("total of %i unique words after removing those with count < %s" % (len(self.vocab), self.min_count))
-        # add probabilities for sub-sampling (if self.thr > 0)
-        if self.thr > 0:
-            total_words = float(sum(v.count for v in self.vocab.values()))
-            for word in self.vocab:
-                # formula from paper
-                #self.vocab[word].prob = max(0.,1.-sqrt(self.thr*total_words/self.vocab[word].count))
-                # formula from code
-                self.vocab[word].prob = (sqrt(self.vocab[word].count / (self.thr * total_words)
-                                              ) + 1.) * (self.thr * total_words) / self.vocab[word].count
-        else:
-            # if prob is 0, word wont get discarded
-            for word in self.vocab:
-                self.vocab[word].prob = 0.
+        self.wv.build_vocab(sentences, self.min_count, self.thr)
         # add info about each word's Huffman encoding
         if self.hs:
             self._create_binary_tree()
@@ -246,7 +361,7 @@ class Word2Vec(object):
                 sentence[start:pos + self.window + 1 - reduced_window], start) if (word2 and not (pos2 == pos))]
             if not word2_indices:
                 continue
-            l1 = deepcopy(self.syn0[word2_indices])  # len(word2_indices) x layer1_size
+            l1 = deepcopy(self.wv.vectors[word2_indices])  # len(word2_indices) x layer1_size
             if self.hs:
                 # work on the entire tree at once --> 2d matrix, codelen x layer1_size
                 l2 = deepcopy(self.syn1[word.point])
@@ -257,7 +372,7 @@ class Word2Vec(object):
                 # learn hidden -> output (codelen x layer1_size) batch update
                 self.syn1[word.point] += np.dot(g.T, l1)
                 # learn input -> hidden
-                self.syn0[word2_indices] += np.dot(g, l2)
+                self.wv.vectors[word2_indices] += np.dot(g, l2)
             if self.neg:
                 # use this word (label = 1) + k other random words not from this sentence (label = 0)
                 word_indices = [word.index]
@@ -274,7 +389,7 @@ class Word2Vec(object):
                 # learn hidden -> output (batch update)
                 self.syn1neg[word_indices] += np.dot(g.T, l1)
                 # learn input -> hidden
-                self.syn0[word2_indices] += np.dot(g, l2)
+                self.wv.vectors[word2_indices] += np.dot(g, l2)
         return len([word for word in sentence if word])
 
     def train_sentence_cbow(self, sentence, alpha):
@@ -300,7 +415,7 @@ class Word2Vec(object):
             if not word2_indices:
                 # in this case the sum would return zeros, the mean nans but really no point in doing anything at all
                 continue
-            l1 = np.sum(self.syn0[word2_indices], axis=0)  # 1xlayer1_size
+            l1 = np.sum(self.wv.vectors[word2_indices], axis=0)  # 1xlayer1_size
             if self.hs:
                 # work on the entire tree at once --> 2d matrix, codelen x layer1_size
                 l2 = deepcopy(self.syn1[word.point])
@@ -311,7 +426,7 @@ class Word2Vec(object):
                 # learn hidden -> output
                 self.syn1[word.point] += np.outer(g, l1)
                 # learn input -> hidden, here for all words in the window separately
-                self.syn0[word2_indices] += np.dot(g, l2)
+                self.wv.vectors[word2_indices] += np.dot(g, l2)
             if self.neg:
                 # use this word (label = 1) + k other random words not from this sentence (label = 0)
                 word_indices = [word.index]
@@ -328,21 +443,17 @@ class Word2Vec(object):
                 # learn hidden -> output
                 self.syn1neg[word_indices] += np.outer(g, l1)
                 # learn input -> hidden, here for all words in the window separately
-                self.syn0[word2_indices] += np.dot(g, l2)
+                self.wv.vectors[word2_indices] += np.dot(g, l2)
         return len([word for word in sentence if word])
 
-    def train(self, sentences, mtype=False, alpha=False, min_alpha=False):
+    def train(self, sentences, alpha=False, min_alpha=False):
         """
         Update the model's embedding and weights from a sequence of sentences (can be a once-only generator stream).
         Each sentence must be a list of strings.
-
-        There is the option to change the model type again (but not the type of training (hs or neg))
         """
-        logger.info("training model on %i vocabulary and %i features" % (len(self.vocab), self.embed_dim))
-        if not self.vocab:
+        logger.info("training model on %i vocabulary and %i features" % (len(self.wv.vocab), self.wv.vector_size))
+        if not self.wv.vocab:
             raise RuntimeError("you must first build vocabulary before training the model")
-        if not mtype is False and mtype in ('sg', 'cbow'):
-            self.mtype = mtype
         if alpha:
             self.alpha = alpha
         if min_alpha:
@@ -352,11 +463,11 @@ class Word2Vec(object):
         if self.neg and self.table is None:
             self._make_table()
         start, next_report = time.time(), 20.
-        total_words = sum(v.count for v in self.vocab.values())
+        total_words = sum(v.count for v in self.wv.vocab.values())
         word_count = 0
         for sentence_no, sentence in enumerate(sentences):
             # convert input string lists to Vocab objects (or None for OOV words)
-            no_oov = [self.vocab.get(word, None) for word in sentence]
+            no_oov = [self.wv.vocab.get(word, None) for word in sentence]
             # update the learning rate before every iteration
             alpha = self.min_alpha + (self.alpha - self.min_alpha) * (1. - word_count / total_words)
             # train on the sentence and check how many words did we train on
@@ -376,90 +487,5 @@ class Word2Vec(object):
         elapsed = time.time() - start
         logger.info("training on %i words took %.1fs, %.0f words/s" %
                     (word_count, elapsed, word_count / elapsed if elapsed else 0.0))
-        # for convenience (for later similarity computations, etc.), store all
-        # embeddings additionally as unit length vectors
-        self.syn0norm = self.syn0 / np.array([np.linalg.norm(self.syn0, axis=1)]).T
-
-    def __getitem__(self, word):
-        """
-        Return a word's representations in vector space, as a 1D numpy array.
-
-        Example:
-          >>> trained_model['woman']
-          array([ -1.40128313e-02, ...]
-        """
-        return self.syn0[self.vocab[word].index]
-
-    def __contains__(self, word):
-        return word in self.vocab
-
-    def __str__(self):
-        return "Word2Vec(vocab=%s, size=%s, mtype=%s, hs=%i, neg=%i)" % (len(self.index2word), self.embed_dim, self.mtype, self.hs, self.neg)
-
-    def similarity(self, w1, w2):
-        """
-        Compute cosine similarity between two words.
-
-        Example::
-          >>> trained_model.similarity('woman', 'man')
-          0.73723527
-        """
-        return np.inner(self.syn0norm[self.vocab[w1].index], self.syn0norm[self.vocab[w2].index])
-
-    def most_similar(self, positive=[], negative=[], topn=10):
-        """
-        Find the top-N most similar words. Positive words contribute positively towards the
-        similarity, negative words negatively.
-
-        This method computes cosine similarity between a simple mean of the projection
-        weight vectors of the given words, and corresponds to the `word-analogy` and
-        `distance` scripts in the original word2vec implementation.
-
-        Example::
-          >>> trained_model.most_similar(positive=['woman', 'king'], negative=['man'])
-          [('queen', 0.50882536), ...]
-        """
-        if isinstance(positive, str) and not negative:
-            # allow calls like most_similar('dog'), as a shorthand for most_similar(['dog'])
-            positive = [positive]
-
-        # add weights for each word, if not already present; default to 1.0 for positive and -1.0 for negative words
-        positive = [(word, 1.) if isinstance(word, str) else word for word in positive]
-        negative = [(word, -1.) if isinstance(word, str) else word for word in negative]
-
-        # compute the weighted average of all words
-        all_words = set()
-        mean = np.zeros(self.embed_dim)
-        for word, weight in positive + negative:
-            try:
-                mean += weight * self.syn0norm[self.vocab[word].index]
-                all_words.add(self.vocab[word].index)
-            except KeyError:
-                print("word '%s' not in vocabulary" % word)
-        if not all_words:
-            raise ValueError("cannot compute similarity with no input")
-        dists = np.dot(self.syn0norm, mean / np.linalg.norm(mean))
-        if not topn:
-            return dists
-        best = np.argsort(dists)[::-1][:topn + len(all_words)]
-        # ignore (don't return) words from the input
-        result = [(self.index2word[sim], dists[sim]) for sim in best if sim not in all_words]
-        return result[:topn]
-
-    def doesnt_match(self, words):
-        """
-        Which word from the given list doesn't go with the others?
-
-        Example::
-          >>> trained_model.doesnt_match("breakfast cereal dinner lunch".split())
-          'cereal'
-        """
-        words = [word for word in words if word in self.vocab]  # filter out OOV words
-        logger.debug("using words %s" % words)
-        if not words:
-            raise ValueError("cannot select a word from an empty list")
-        # which word vector representation is furthest away from the mean?
-        selection = self.syn0norm[[self.vocab[word].index for word in words]]
-        mean = np.mean(selection, axis=0)
-        sim = np.dot(selection, mean / np.linalg.norm(mean))
-        return words[np.argmin(sim)]
+        # compute vector norms for later stuff
+        self.wv.init_sims()
