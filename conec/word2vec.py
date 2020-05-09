@@ -453,7 +453,7 @@ class Word2Vec(object):
         """
         logger.info("training model on %i vocabulary and %i features" % (len(self.wv.vocab), self.wv.vector_size))
         if not self.wv.vocab:
-            raise RuntimeError("you must first build vocabulary before training the model")
+            self.train_setup(sentences)
         if alpha:
             self.alpha = alpha
         if min_alpha:

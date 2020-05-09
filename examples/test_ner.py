@@ -5,11 +5,11 @@ from builtins import object, range, next
 import logging
 import pickle as pkl
 import re
+import unicodedata
 from copy import deepcopy
 import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix
 from sklearn.linear_model import LogisticRegression as logreg
-from unidecode import unidecode
 
 from conec import word2vec
 from conec import context2vec
@@ -19,7 +19,8 @@ logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=lo
 
 def clean_conll2003(text, to_lower=False):
     # clean the text: no fucked up characters
-    text = unidecode(text.decode("utf-8"))
+    nfkd_form = unicodedata.normalize("NFKD", text)
+    text = nfkd_form.encode("ASCII", "ignore").decode("ASCII")
     # normalize numbers
     text = re.sub(r"[0-9]", "1", text)
     if to_lower:
@@ -69,7 +70,7 @@ def train_word2vec(train_all=False, it=20, seed=1):
     alpha = 0.02
     model = word2vec.Word2Vec(sentences, min_count=1, mtype='cbow', hs=0, neg=13, vector_size=200, alpha=alpha, min_alpha=alpha, seed=seed)
     for i in range(1, it):
-        print("####### ITERATION %i ########" % i)
+        print("####### ITERATION %i ########" % (i + 1))
         if not i % 5:
             save_model(model, "conll2003_train_cbow_200_hs0_neg13_seed%i_it%i.model" % (seed, i))
             alpha /= 2.

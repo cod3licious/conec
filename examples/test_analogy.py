@@ -56,9 +56,9 @@ class OneBilCorpus(object):
 def analogy(model, a, b, c):
     # man:woman as king:x - a:b as c:x - find x
     # get embeddings for a, b, and c and multiply with all other words
-    a_sims = 1. + np.dot(model.wv.vector_norm, model.wv.vector_norm[model.wv.vocab[a].index])
-    b_sims = 1. + np.dot(model.wv.vector_norm, model.wv.vector_norm[model.wv.vocab[b].index])
-    c_sims = 1. + np.dot(model.wv.vector_norm, model.wv.vector_norm[model.wv.vocab[c].index])
+    a_sims = 1. + np.dot(model.wv.vectors_norm, model.wv.vectors_norm[model.wv.vocab[a].index])
+    b_sims = 1. + np.dot(model.wv.vectors_norm, model.wv.vectors_norm[model.wv.vocab[b].index])
+    c_sims = 1. + np.dot(model.wv.vectors_norm, model.wv.vectors_norm[model.wv.vocab[c].index])
     # add/multiply them as they should
     return b_sims - a_sims + c_sims
     # return (b_sims*c_sims)/a_sims
@@ -183,10 +183,10 @@ def evaluate_contextenc(corpus, seed=1):
         print("constructing context matrix for fill_diag: %s" % (fill_diag))
         context_mat = context_model.get_context_matrix(fill_diag, False)
         # adapt the word2vec model
-        print("adapting the word2vec weights - vector_norm")
-        model.wv.vector_norm = context_mat.dot(model.wv.vector_norm)
+        print("adapting the word2vec weights - vectors_norm")
+        model.wv.vectors_norm = context_mat.dot(model.wv.vectors_norm)
         # renormalize
-        model.wv.vector_norm = model.wv.vector_norm / np.array([np.linalg.norm(model.wv.vector_norm, axis=1)]).T
+        model.wv.vectors_norm = model.wv.vectors_norm / np.array([np.linalg.norm(model.wv.vectors_norm, axis=1)]).T
         # evaluate
         print("evaluating the model")
         _ = accuracy(model, "data/questions-words.txt")
@@ -209,13 +209,13 @@ def train_word2vec(corpus='text8', seed=1, it=10, save_interm=True):
         model.table = table
 
     # train the cbow model; default window=5
-    model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, vector_size=200, seed=seed)
+    model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, vector_size=200, alpha=0.025, min_alpha=0.01, seed=seed)
     for i in range(1, it):
         print("####### ITERATION %i ########" % i)
         _ = accuracy(model, "data/questions-words.txt")
         if save_interm:
             save_model(model, "%s_cbow_200_hs0_neg13_seed%i_it%i.model" % (corpus, seed, i))
-        model.train(sentences, alpha=0.005, min_alpha=0.005)
+        model.train(sentences, alpha=0.025, min_alpha=0.01)
     save_model(model, "%s_cbow_200_hs0_neg13_seed%i_it%i.model" % (corpus, seed, it))
     print("####### ITERATION %i ########" % it)
     _ = accuracy(model, "data/questions-words.txt")
@@ -234,7 +234,7 @@ def main():
     it = 3
     train_word2vec(corpus='text8', seed=3, it=it, save_interm=False)
     # since this saves the model (e.g. for training on a cluster), we need to load it again
-    with open("data/text8_cbow_200_hs0_neg13_seed3_it%i.model" % it) as f:
+    with open("data/text8_cbow_200_hs0_neg13_seed3_it%i.model" % it, "rb") as f:
         model = pkl.load(f)
     """
         collected 253854 unique words from a corpus of 17005207 words and 17006 sentences
@@ -268,9 +268,9 @@ def main():
     # --> fill diagonal of the context matrix. normalization is irrelevant since we renormalize later
     context_mat = context_model.get_context_matrix(fill_diag=True, norm=False)
     # adapt the word embeddings of the word2vec model by multiplying them with the context matrix
-    model.wv.vector_norm = context_mat.dot(model.wv.vector_norm)
+    model.wv.vectors_norm = context_mat.dot(model.wv.vectors_norm)
     # renormalize so the word embeddings have unit length again
-    model.wv.vector_norm = model.wv.vector_norm / np.array([np.linalg.norm(model.wv.vector_norm, axis=1)]).T
+    model.wv.vectors_norm = model.wv.vectors_norm / np.array([np.linalg.norm(model.wv.vectors_norm, axis=1)]).T
     # evaluate the model again
     _ = accuracy(model, "data/questions-words.txt")
     """

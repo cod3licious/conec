@@ -35,13 +35,13 @@ dependencies: numpy, scipy
     # get the text for training
     sentences = Text8Corpus('data/text8')
     # train the word2vec model
-    w2v_model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, embed_dim=200, seed=3)
+    w2v_model = word2vec.Word2Vec(sentences, mtype='cbow', hs=0, neg=13, vector_size=200, seed=3)
     # get the global context matrix for the text
-    context_model = context2vec.ContextModel(sentences, min_count=w2v_model.min_count, window=w2v_model.window, wordlist=w2v_model.index2word)
+    context_model = context2vec.ContextModel(sentences, min_count=w2v_model.min_count, window=w2v_model.window, wordlist=w2v_model.wv.index2word)
     context_mat = context_model.get_context_matrix(fill_diag=False, norm='max')
     # multiply the context matrix with the (length normalized) word2vec embeddings
     # to get the context encoder (ConEc) embeddings
-    conec_emb = context_mat.dot(w2v_model.syn0norm)
+    conec_emb = context_mat.dot(w2v_model.wv.vectors_norm)
     # renormalize so the word embeddings have unit length again
     conec_emb = conec_emb / np.array([np.linalg.norm(conec_emb, axis=1)]).T
 
@@ -50,7 +50,7 @@ dependencies: numpy, scipy
 
 examples
 --------
-additional dependencies: sklearn, unidecode
+additional dependencies: sklearn
 
 ``test_analogy.py`` and ``test_ner.py`` contain the code to replicate the analogy and named entity recognition (NER) experiments discussed in the aforementioned paper.
 
