@@ -120,10 +120,9 @@ class Word2VecEmbeddings(object):
                 self.vocab[word].prob = 0.
 
     def init_sims(self):
-        if self.vectors_norm is None:
-            # for convenience (for later similarity computations, etc.), store all
-            # embeddings additionally as unit length vectors
-            self.vectors_norm = self.vectors / np.array([np.linalg.norm(self.vectors, axis=1)]).T
+        # for convenience (for later similarity computations, etc.), store all
+        # embeddings additionally as unit length vectors
+        self.vectors_norm = self.vectors / np.array([np.linalg.norm(self.vectors, axis=1)]).T
 
     def similarity(self, w1, w2):
         """
@@ -133,7 +132,8 @@ class Word2VecEmbeddings(object):
           >>> trained_model.similarity('woman', 'man')
           0.73723527
         """
-        self.init_sims()
+        if self.vectors_norm is None:
+            self.init_sims()
         return np.inner(self.vectors_norm[self.vocab[w1].index], self.vectors_norm[self.vocab[w2].index])
 
     def most_similar(self, positive=[], negative=[], topn=10):
@@ -149,7 +149,8 @@ class Word2VecEmbeddings(object):
           >>> trained_model.most_similar(positive=['woman', 'king'], negative=['man'])
           [('queen', 0.50882536), ...]
         """
-        self.init_sims()
+        if self.vectors_norm is None:
+            self.init_sims()
         if isinstance(positive, str) and not negative:
             # allow calls like most_similar('dog'), as a shorthand for most_similar(['dog'])
             positive = [positive]
@@ -185,7 +186,8 @@ class Word2VecEmbeddings(object):
           >>> trained_model.doesnt_match("breakfast cereal dinner lunch".split())
           'cereal'
         """
-        self.init_sims()
+        if self.vectors_norm is None:
+            self.init_sims()
         words = [word for word in words if word in self.vocab]  # filter out OOV words
         logger.debug("using words %s" % words)
         if not words:
